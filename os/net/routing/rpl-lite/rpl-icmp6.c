@@ -56,6 +56,13 @@
 #define LOG_MODULE "RPL"
 #define LOG_LEVEL LOG_LEVEL_RPL
 
+/* edit, YongJun Kim: Include header */
+#include <stdlib.h>
+#include "net/routing/util.h"
+#include "net/nbr-table.h"
+#include "net/ipv6/uiplib.h"
+#include "net/routing/rpl-lite/rpl-neighbor.h"
+
 /*---------------------------------------------------------------------------*/
 #define RPL_DIO_GROUNDED                 0x80
 #define RPL_DIO_MOP_SHIFT                3
@@ -525,6 +532,14 @@ dao_input(void)
           memcpy(&dao.parent_addr, buffer + i + 6, 16);
         }
         break;
+	  /* edit, YongJun Kim, NBR addr */
+	  case RPL_OPTION_NBR_INFO:
+		printf("RECV DAO\n");
+		dao.nbr_num = buffer[i+1];
+		printf("nbr_num : %u\n", dao.nbr_num);
+		memcpy(dao.nbr_ids, buffer + i + 2,  (16 - curr_instance.dag.prefix_info.length / 8) * dao.nbr_num);
+
+		break;
     }
   }
 
@@ -607,6 +622,33 @@ rpl_icmp6_dao_output(uint8_t lifetime)
   pos += 8;
   memcpy(buffer + pos, ((const unsigned char *)parent_ipaddr) + 8, 8); /* Interface identifier */
   pos += 8;
+
+  /* edit, YongJun Kim: Insert Nbr host ipaddr */
+  uip_ds6_nbr_t *nbr;
+  int prefix_info_len = curr_instance.dag.prefix_info.length;
+  int start_id_point = prefix_info_len / 8;
+  //printf("prefix length: %d\n", curr_instance.dag.prefix_info.length); 
+  //int start_id_point = 14;
+  //uip_ipaddr_t nbr_addr;
+  int nbr_num = rpl_neighbor_count();
+  
+  buffer[pos++] = RPL_OPTION_NBR_INFO;
+  buffer[pos++] = nbr_num; 
+//  printf("nbr_num : %u/%d \n",buffer[pos-1],nbr_num);
+//  memset(&buffer[pos], nbr_num, sizeof int);
+//  pos += sizeof int;
+ 
+  for(nbr = nbr_table_head(ds6_neighbors);
+      nbr != NULL;
+      nbr = nbr_table_next(ds6_neighbors, nbr)) {
+	memcpy(buffer + pos, nbr->ipaddr.u8 + start_id_point, 16 - start_id_point);
+    pos += 16 - start_id_point;
+
+	//printf("%x%x\n",buffer[pos - 2], buffer[pos-1]);
+	//ipaddr_add(&nbr->ipaddr);
+    //PRINT();
+  }
+  printf("SEND DAO\n");
 
   LOG_INFO("sending a %sDAO seqno %u, tx count %u, lifetime %u, prefix ",
          lifetime == 0 ? "No-path " : "",

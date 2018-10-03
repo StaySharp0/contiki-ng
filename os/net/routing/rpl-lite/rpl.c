@@ -44,6 +44,8 @@
 #include "net/routing/rpl-lite/rpl.h"
 #include "net/routing/routing.h"
 
+#include "net/routing/util.h"
+
 /* Log configuration */
 #include "sys/log.h"
 #define LOG_MODULE "RPL"
@@ -193,6 +195,7 @@ init(void)
 {
   LOG_INFO("initializing\n");
 
+  util_init();
   /* Initialize multicast address and register it */
   uip_create_linklocal_rplnodes_mcast(&rpl_multicast_addr);
   uip_ds6_maddr_add(&rpl_multicast_addr);

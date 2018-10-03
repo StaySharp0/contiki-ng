@@ -81,6 +81,8 @@ struct rpl_dao {
   uint8_t lifetime;
   uint8_t prefixlen;
   uint8_t flags;
+  uint8_t nbr_num;
+  uint8_t nbr_ids[1024];
 };
 typedef struct rpl_dao rpl_dao_t;
 

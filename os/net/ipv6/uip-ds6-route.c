@@ -265,6 +265,7 @@ uip_ds6_route_num_routes(void)
 uip_ds6_route_t *
 uip_ds6_route_lookup(const uip_ipaddr_t *addr)
 {
+	printf("lookup!\n");
 #if (UIP_MAX_ROUTES != 0)
   uip_ds6_route_t *r;
   uip_ds6_route_t *found_route;

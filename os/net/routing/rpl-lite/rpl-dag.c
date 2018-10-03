@@ -52,6 +52,9 @@
 #define LOG_MODULE "RPL"
 #define LOG_LEVEL LOG_LEVEL_RPL
 
+/* edit YongJun Kim: include header */
+#include "net/routing/util.h"
+
 /*---------------------------------------------------------------------------*/
 extern rpl_of_t rpl_of0, rpl_mrhof;
 static rpl_of_t * const objective_functions[] = RPL_SUPPORTED_OFS;
@@ -632,6 +635,28 @@ rpl_process_dao(uip_ipaddr_t *from, rpl_dao_t *dao)
     if(!uip_sr_update_node(NULL, from, &dao->parent_addr, RPL_LIFETIME(dao->lifetime))) {
       LOG_ERR("failed to add link on incoming DAO\n");
       return;
+    }
+  }
+
+  /* edit, YongJun Kim: Process NBR */
+  if(rpl_dag_root_is_root()){
+	int host_len = 16 - (curr_instance.dag.prefix_info.length / 8);
+    uint8_t addr[16];
+
+	// add target node
+    memcpy(addr, from->u16 + 8-(host_len/2), host_len);
+    int idx = insert_unique_node(addr, host_len);
+    unique_node_t *node = get_node(idx); 
+    printf("%x%2x:%x%2x:%x%2x:%x%2x\n", addr[0], addr[1], addr[2], addr[3], addr[4], addr[5], addr[6], addr[7]);
+    printf("idx: %d\n", idx);
+
+	printf("===== nbr list =====\n");
+    for(int i = 0; i < dao->nbr_num; i++){
+	  memcpy(addr, dao->nbr_ids + host_len*i, host_len);
+      idx = insert_unique_node(addr, host_len);
+      node->nbr[node->nbr_num++] = idx;
+      printf("%x%2x:%x%2x:%x%2x:%x%2x\n", addr[0], addr[1], addr[2], addr[3], addr[4], addr[5], addr[6], addr[7]);
+      printf("idx: %d\n", idx);
     }
   }
 
