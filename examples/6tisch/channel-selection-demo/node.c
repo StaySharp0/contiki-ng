@@ -1,5 +1,6 @@
 /*
- * Copyright (c) 2011, Loughborough University - Computer Science
+ * Copyright (c) 2015, SICS Swedish ICT.
+ * Copyright (c) 2018, University of Bristol - http://www.bristol.ac.uk
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -26,51 +27,68 @@
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
  *
- * This file is part of the Contiki operating system.
  */
-
 /**
  * \file
- *         Header file for the Enhanced Stateless Multicast RPL Forwarding (ESMRF)
+ *         A RPL+TSCH node.
  *
- * \author
- *         Khaled Qorany	kqorany2@gmail.com
+ * \author Simon Duquennoy <simonduq@sics.se>
+ *         Atis Elsts <atis.elsts@bristol.ac.uk>
  */
 
-#ifndef ESMRF_H_
-#define ESMRF_H_
-
 #include "contiki.h"
+#include "sys/node-id.h"
+#include "sys/log.h"
+#include "net/ipv6/uip-ds6-route.h"
+#include "net/ipv6/uip-sr.h"
+#include "net/mac/tsch/tsch.h"
+#include "net/routing/routing.h"
+#include "tsch-cs.h"
 
-#include <stdint.h>
+#define DEBUG DEBUG_PRINT
+#include "net/ipv6/uip-debug.h"
+
 /*---------------------------------------------------------------------------*/
-/* Protocol Constants */
+PROCESS(node_process, "RPL Node");
+AUTOSTART_PROCESSES(&node_process);
+
 /*---------------------------------------------------------------------------*/
-#define ESMRF_ICMP_CODE              0   /* ICMPv6 code field */
-#define ESMRF_IP_HOP_LIMIT        0xFF   /* Hop limit for ICMP messages */
-/*---------------------------------------------------------------------------*/
-/* Configuration */
-/*---------------------------------------------------------------------------*/
-/* Fmin */
-#ifdef ESMRF_CONF_MIN_FWD_DELAY
-#define ESMRF_MIN_FWD_DELAY ESMRF_CONF_MIN_FWD_DELAY
-#else
-#define ESMRF_MIN_FWD_DELAY 4
+PROCESS_THREAD(node_process, ev, data)
+{
+  int is_coordinator;
+
+  PROCESS_BEGIN();
+
+  is_coordinator = 0;
+
+#if CONTIKI_TARGET_COOJA
+  is_coordinator = (node_id == 1);
 #endif
 
-/* Max Spread */
-#ifdef ESMRF_CONF_MAX_SPREAD
-#define ESMRF_MAX_SPREAD ESMRF_CONF_MAX_SPREAD
-#else
-#define ESMRF_MAX_SPREAD 4
-#endif
+  if(is_coordinator) {
+    NETSTACK_ROUTING.root_start();
+  }  
+  NETSTACK_MAC.on();
+
+#if WITH_PERIODIC_ROUTES_PRINT
+  {
+    static struct etimer et;
+    /* Print out routing tables every minute */
+    etimer_set(&et, CLOCK_SECOND * 60);
+    while(1) {
+      /* Used for non-regression testing */
+      #if (UIP_MAX_ROUTES != 0)
+        PRINTF("Routing entries: %u\n", uip_ds6_route_num_routes());
+      #endif
+      #if (UIP_SR_LINK_NUM != 0)
+        PRINTF("Routing links: %u\n", uip_sr_num_nodes());
+      #endif
+      PROCESS_YIELD_UNTIL(etimer_expired(&et));
+      etimer_reset(&et);
+    }
+  }
+#endif /* WITH_PERIODIC_ROUTES_PRINT */
+
+  PROCESS_END();
+}
 /*---------------------------------------------------------------------------*/
-/* Stats datatype */
-/*---------------------------------------------------------------------------*/
-struct esmrf_stats {
-  uint16_t icmp_out;
-  uint16_t icmp_in;
-  uint16_t icmp_bad;
-};
-/*---------------------------------------------------------------------------*/
-#endif /* ESMRF_H_ */
