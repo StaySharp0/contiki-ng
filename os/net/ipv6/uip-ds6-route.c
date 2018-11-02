@@ -45,7 +45,7 @@
 #include "lib/list.h"
 #include "lib/memb.h"
 #include "net/nbr-table.h"
-
+#include "routing/util.h"
 /* Log configuration */
 #include "sys/log.h"
 #define LOG_MODULE "IPv6 Route"
@@ -265,15 +265,14 @@ uip_ds6_route_num_routes(void)
 uip_ds6_route_t *
 uip_ds6_route_lookup(const uip_ipaddr_t *addr)
 {
-	printf("lookup!\n");
 #if (UIP_MAX_ROUTES != 0)
   uip_ds6_route_t *r;
   uip_ds6_route_t *found_route;
   uint8_t longestmatch;
 
-  LOG_INFO("Looking up route for ");
-  LOG_INFO_6ADDR(addr);
-  LOG_INFO_("\n");
+  ADD("Looking up route for ");
+  ipaddr_add(addr);
+  printf();
 
   if(addr == NULL) {
     return NULL;
@@ -296,13 +295,13 @@ uip_ds6_route_lookup(const uip_ipaddr_t *addr)
   }
 
   if(found_route != NULL) {
-    LOG_INFO("Found route: ");
-    LOG_INFO_6ADDR(addr);
-    LOG_INFO_(" via ");
-    LOG_INFO_6ADDR(uip_ds6_route_nexthop(found_route));
-    LOG_INFO_("\n");
+    PRINT("Found route: ");
+    ipaddr_add(addr);
+    PRINT(" via ");
+    ipaddr_add(uip_ds6_route_nexthop(found_route));
+    PRINT("\n");
   } else {
-    LOG_WARN("No route found\n");
+    PRINT("No route found\n");
   }
 
   if(found_route != NULL && found_route != list_head(routelist)) {

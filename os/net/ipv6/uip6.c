@@ -81,6 +81,8 @@
 #include "net/ipv6/multicast/uip-mcast6.h"
 #include "net/routing/routing.h"
 
+#include "net/routing/util.h"
+
 #if UIP_ND6_SEND_NS
 #include "net/ipv6/uip-ds6-nbr.h"
 #endif /* UIP_ND6_SEND_NS */
@@ -1079,12 +1081,11 @@ uip_process(uint8_t flag)
   }
 #endif /* UIP_UDP */
 
-
-  /* This is where the input processing starts. */
-  UIP_STAT(++uip_stat.ip.recv);
+	/* This is where the input processing starts. */
+	//printf("input\n");
+	UIP_STAT(++uip_stat.ip.recv);
 
   /* Start of IP input header processing code. */
-
   /* Check validity of the IP header. */
   if((UIP_IP_BUF->vtc & 0xf0) != 0x60)  { /* IP version and header length. */
     UIP_STAT(++uip_stat.ip.drop);
@@ -1131,6 +1132,7 @@ uip_process(uint8_t flag)
     goto drop;
   }
 
+
   /* Refresh neighbor state after receiving a unicast message */
 #if UIP_ND6_SEND_NS
   if(!uip_is_addr_mcast(&UIP_IP_BUF->destipaddr)) {
@@ -1158,17 +1160,16 @@ uip_process(uint8_t flag)
       uip_ext_len += (UIP_EXT_BUF->len << 3) + 8;
       break;
     case 1:
-      LOG_ERR("Dropping packet after extension header processing\n");
+      printf("Dropping packet after extension header processing\n");
       /* silently discard */
       goto drop;
     case 2:
-      LOG_ERR("Sending error message after extension header processing\n");
+      printf("Sending error message after extension header processing\n");
       /* send icmp error message (created in ext_hdr_options_process)
        * and discard*/
       goto send;
     }
   }
-
   /*
    * Process Packets with a routable multicast destination:
    * - We invoke the multicast engine and let it do its thing
@@ -1186,13 +1187,15 @@ uip_process(uint8_t flag)
       /* Deliver up the stack */
       goto process;
     } else {
+				printf("UIP_IPV6_MULTICAST drop\n");
       /* Don't deliver up the stack */
       goto drop;
     }
   }
 #endif /* UIP_IPV6_MULTICAST */
-
   /* TBD Some Parameter problem messages */
+
+
   if(!uip_ds6_is_my_addr(&UIP_IP_BUF->destipaddr) &&
      !uip_ds6_is_my_maddr(&UIP_IP_BUF->destipaddr)) {
     if(!uip_is_addr_mcast(&UIP_IP_BUF->destipaddr) &&
@@ -1233,7 +1236,7 @@ uip_process(uint8_t flag)
                                ICMP6_DST_UNREACH_NOTNEIGHBOR, 0);
         goto send;
       }
-      LOG_ERR("Dropping packet, not for me and link local or multicast\n");
+      // printf("Dropping packet, not for me and link local or multicast\n");
       UIP_STAT(++uip_stat.ip.drop);
       goto drop;
     }
@@ -1270,6 +1273,7 @@ uip_process(uint8_t flag)
 #if UIP_UDP
     case UIP_PROTO_UDP:
       /* UDP, for both IPv4 and IPv6 */
+			//printf("udp_input\n");
       goto udp_input;
 #endif /* UIP_UDP */
     case UIP_PROTO_ICMP6:
@@ -1482,7 +1486,7 @@ uip_process(uint8_t flag)
 
   remove_ext_hdr();
 
-  LOG_INFO("Receiving UDP packet\n");
+  //printf("Receiving UDP packet\n");
 
   /* UDP processing is really just a hack. We don't do anything to the
      UDP/IP headers, but let the UDP application do all the hard
@@ -1497,12 +1501,11 @@ uip_process(uint8_t flag)
   if(UIP_UDP_BUF->udpchksum != 0 && uip_udpchksum() != 0xffff) {
     UIP_STAT(++uip_stat.udp.drop);
     UIP_STAT(++uip_stat.udp.chkerr);
-    LOG_ERR("udp: bad checksum 0x%04x 0x%04x\n", UIP_UDP_BUF->udpchksum,
+		printf("udp: bad checksum 0x%04x 0x%04x\n", UIP_UDP_BUF->udpchksum,
            uip_udpchksum());
     goto drop;
   }
 #endif /* UIP_UDP_CHECKSUMS */
-
   /* Make sure that the UDP destination port number is not zero. */
   if(UIP_UDP_BUF->destport == 0) {
     LOG_ERR("udp: zero port.\n");
@@ -1529,14 +1532,14 @@ uip_process(uint8_t flag)
       goto udp_found;
     }
   }
-  LOG_ERR("udp: no matching connection found\n");
+  printf("udp: no matching connection found\n");
   UIP_STAT(++uip_stat.udp.drop);
 
   uip_icmp6_error_output(ICMP6_DST_UNREACH, ICMP6_DST_UNREACH_NOPORT, 0);
   goto send;
 
   udp_found:
-  LOG_DBG("In udp_found\n");
+  //printf("In udp_found\n");
   UIP_STAT(++uip_stat.udp.recv);
 
   uip_len = uip_len - UIP_IPUDPH_LEN;
@@ -1572,7 +1575,12 @@ uip_process(uint8_t flag)
   UIP_UDP_BUF->destport = uip_udp_conn->rport;
 
   uip_ipaddr_copy(&UIP_IP_BUF->destipaddr, &uip_udp_conn->ripaddr);
+	UIP_IP_BUF->destipaddr.u8[0] = 0xfd;
+	UIP_IP_BUF->destipaddr.u8[1] = 0x00;
   uip_ds6_select_src(&UIP_IP_BUF->srcipaddr, &UIP_IP_BUF->destipaddr);
+	//UIP_IP_BUF->srcipaddr.u8[0] = 0xaa;
+	//UIP_IP_BUF->srcipaddr.u8[1] = 0xaa;
+
 
   uip_appdata = &uip_buf[UIP_LLH_LEN + UIP_IPTCPH_LEN];
 

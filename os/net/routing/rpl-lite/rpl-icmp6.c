@@ -534,9 +534,9 @@ dao_input(void)
         break;
 	  /* edit, YongJun Kim, NBR addr */
 	  case RPL_OPTION_NBR_INFO:
-		printf("RECV DAO\n");
+		//printf("RECV DAO\n");
 		dao.nbr_num = buffer[i+1];
-		printf("nbr_num : %u\n", dao.nbr_num);
+		//printf("nbr_num : %u\n", dao.nbr_num);
 		memcpy(dao.nbr_ids, buffer + i + 2,  (16 - curr_instance.dag.prefix_info.length / 8) * dao.nbr_num);
 
 		break;
@@ -648,7 +648,7 @@ rpl_icmp6_dao_output(uint8_t lifetime)
 	//ipaddr_add(&nbr->ipaddr);
     //PRINT();
   }
-  printf("SEND DAO\n");
+  //printf("SEND DAO\n");
 
   LOG_INFO("sending a %sDAO seqno %u, tx count %u, lifetime %u, prefix ",
          lifetime == 0 ? "No-path " : "",

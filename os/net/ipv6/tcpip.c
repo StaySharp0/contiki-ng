@@ -48,6 +48,8 @@
 #include "net/linkaddr.h"
 #include "net/routing/routing.h"
 
+#include "net/routing/util.h"
+
 #include <string.h>
 
 /* Log configuration */
@@ -501,29 +503,38 @@ get_nexthop(uip_ipaddr_t *addr)
   const uip_ipaddr_t *nexthop;
   uip_ds6_route_t *route;
 
-  LOG_INFO("output: processing %u bytes packet from ", uip_len);
-  LOG_INFO_6ADDR(&UIP_IP_BUF->srcipaddr);
-  LOG_INFO_(" to ");
-  LOG_INFO_6ADDR(&UIP_IP_BUF->destipaddr);
-  LOG_INFO_("\n");
+//  ADD("output: processing %u bytes packet from ", uip_len);
+//  ipaddr_add(&UIP_IP_BUF->srcipaddr);
+//  ADD(" to ");
+//  ipaddr_add(&UIP_IP_BUF->destipaddr);
+//	PRINT();
 
   if(NETSTACK_ROUTING.ext_header_srh_get_next_hop(addr)) {
-    LOG_INFO("output: selected next hop from SRH: ");
-    LOG_INFO_6ADDR(addr);
-    LOG_INFO_("\n");
+    //ADD("output: selected next hop from SRH: ");
+    //ipaddr_add(addr);
+    //PRINT();
     return addr;
   }
 
   /* We first check if the destination address is on our immediate
      link. If so, we simply use the destination address as our
      nexthop address. */
-  if(uip_ds6_is_addr_onlink(&UIP_IP_BUF->destipaddr)) {
-    LOG_INFO("output: destination is on link\n");
-    return &UIP_IP_BUF->destipaddr;
-  }
+//  if(uip_ds6_is_addr_onlink(&UIP_IP_BUF->destipaddr)) {
+//    ADD("output: destination is on link\n");
+//		PRINT();
+//    return &UIP_IP_BUF->destipaddr;
+//  }
 
   /* Check if we have a route to the destination address. */
+//	uip_ipaddr_t tmp;
+//	uip_ipaddr_copy(&tmp, &UIP_IP_BUF->destipaddr);
+//	tmp.u8[0] = 0xfe;
+//	tmp.u8[1] = 0x80;
+
   route = uip_ds6_route_lookup(&UIP_IP_BUF->destipaddr);
+  //route = uip_ds6_route_lookup(&tmp);
+//	ipaddr_add(&tmp);
+//	PRINT();
 
   /* No route was found - we send to the default route instead. */
   if(route == NULL) {
@@ -531,9 +542,10 @@ get_nexthop(uip_ipaddr_t *addr)
     if(nexthop == NULL) {
       output_fallback();
     } else {
-      LOG_INFO("output: no route found, using default route: ");
-      LOG_INFO_6ADDR(nexthop);
-      LOG_INFO_("\n");
+      //ADD("output: no route found, using default route: ");
+      //ipaddr_add(nexthop);
+      //PRINT();
+			return nexthop;
     }
 
   } else {
@@ -544,17 +556,25 @@ get_nexthop(uip_ipaddr_t *addr)
     /* If the nexthop is dead, for example because the neighbor
        never responded to link-layer acks, we drop its route. */
     if(nexthop == NULL) {
-      LOG_ERR("output: found dead route\n");
-      /* Notifiy the routing protocol that we are about to remove the route */
+      //ADD("output: found dead route\n");
+      //PRINT();
+			/* Notifiy the routing protocol that we are about to remove the route */
       NETSTACK_ROUTING.drop_route(route);
       /* Remove the route */
       uip_ds6_route_rm(route);
       /* We don't have a nexthop to send the packet to, so we drop it. */
     } else {
-      LOG_INFO("output: found next hop from routing table: ");
-      LOG_INFO_6ADDR(nexthop);
-      LOG_INFO_("\n");
+      //ADD("output: found next hop from routing table: ");
+      //ipaddr_add(nexthop);
+      //PRINT();
+			return nexthop;
     }
+  }
+
+  if(uip_ds6_is_addr_onlink(&UIP_IP_BUF->destipaddr)) {
+    //ADD("output: destination is on link\n");
+		//PRINT();
+    return &UIP_IP_BUF->destipaddr;
   }
 
   return nexthop;
@@ -654,7 +674,6 @@ tcpip_ipv6_output(void)
     goto exit;
   }
 
-
   if(!NETSTACK_ROUTING.ext_header_update()) {
     /* Packet can not be forwarded */
     LOG_ERR("output: routing protocol extension header update error\n");
@@ -679,6 +698,8 @@ tcpip_ipv6_output(void)
   if((nexthop = get_nexthop(&ipaddr)) == NULL) {
     goto exit;
   }
+	//ipaddr_add(nexthop);
+	//PRINT();
   annotate_transmission(nexthop);
 
   nbr = uip_ds6_nbr_lookup(nexthop);

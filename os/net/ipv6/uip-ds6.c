@@ -52,6 +52,8 @@
 #include "net/ipv6/multicast/uip-mcast6.h"
 #include "net/ipv6/uip-packetqueue.h"
 
+#include "net/routing/util.h"
+
 /* Log configuration */
 #include "sys/log.h"
 #define LOG_MODULE "IPv6 DS"
@@ -541,7 +543,10 @@ uip_ds6_select_src(uip_ipaddr_t *src, uip_ipaddr_t *dst)
     matchaddr = uip_ds6_get_global(ADDR_PREFERRED);
 #endif
   } else {
+		//printf("else\n");
     matchaddr = uip_ds6_get_link_local(ADDR_PREFERRED);
+		//ipaddr_add(&matchaddr->ipaddr);
+		//PRINT();
   }
 
   /* use the :: (unspecified address) as source if no match found */

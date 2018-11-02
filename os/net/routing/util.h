@@ -42,3 +42,13 @@ int
 get_idx(const uint8_t* addr, int prefix_len);
 
 
+
+// UDP SERVER IP LIST
+typedef struct server_list
+{
+  uip_ipaddr_t list[10];
+  int idx;
+} server_list_t;
+
+void set_server_ipaddr(uip_ipaddr_t *ipaddr);
+int get_server_ipaddr(int i, uip_ipaddr_t *ipaddr);

@@ -1,6 +1,7 @@
 #include "util.h"
 #include "lib/list.h"
 #include "lib/memb.h"
+#include "net/routing/rpl-lite/rpl.h"
 
 MEMB(unique_nodes, unique_node_t, 1024);
 
@@ -93,3 +94,33 @@ free_unique_nodes()
   unique_node_count = 0;
 }
 
+
+void set_server_ipaddr(uip_ipaddr_t *ipaddr){
+	server_list_t udp_sl;
+	udp_sl.idx = 0;
+
+  uip_ipaddr_copy(&(udp_sl.list[udp_sl.idx]), ipaddr);
+
+
+	ADD("UDP server(%d): ", udp_sl.idx); 
+	ipaddr_add(&udp_sl.list[udp_sl.idx]);
+	PRINT();
+	udp_sl.idx++;
+
+	FILE *fp = fopen("/home/user/data.bin", "wb");
+	fwrite(&udp_sl, sizeof(server_list_t), 1, fp);       
+	fclose(fp);
+}
+
+int get_server_ipaddr(int i, uip_ipaddr_t *ipaddr){
+	server_list_t udp_sl;
+
+	FILE *fp = fopen("/home/user/data.bin", "rb");
+	if(fp == NULL) return 0;
+    fread(&udp_sl, sizeof(server_list_t), 1, fp);
+	fclose(fp);
+
+	memcpy(ipaddr, &(udp_sl.list[i]), sizeof (uip_ipaddr_t));
+
+	return 1;
+}

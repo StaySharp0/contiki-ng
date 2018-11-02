@@ -66,6 +66,7 @@ uip_mcast6_route_t *
 uip_mcast6_route_lookup(uip_ipaddr_t *group)
 {
   locmcastrt = NULL;
+	printf("mcast6_route_lookup\n");
   for(locmcastrt = list_head(mcast_route_list);
       locmcastrt != NULL;
       locmcastrt = list_item_next(locmcastrt)) {

@@ -48,6 +48,8 @@
 #include "net/ipv6/uip-sr.h"
 #include "net/packetbuf.h"
 
+#include "net/routing/util.h"
+
 /* Log configuration */
 #include "sys/log.h"
 #define LOG_MODULE "RPL"
@@ -233,36 +235,36 @@ insert_srh_header(void)
   uip_sr_node_t *root_node;
   uip_sr_node_t *node;
   uip_ipaddr_t node_addr;
+	uint8_t udp_flag = 0;
 
-  LOG_INFO("SRH creating source routing header with destination ");
-  LOG_INFO_6ADDR(&UIP_IP_BUF->destipaddr);
-  LOG_INFO_(" \n");
-
+//  ADD("SRH creating source routing header with destination ");
+//  ipaddr_add(&UIP_IP_BUF->destipaddr);
+//	PRINT();
   /* Construct source route. We do not do this recursively to keep the runtime stack usage constant. */
 
   /* Get link of the destination and root */
 
   if(!rpl_is_addr_in_our_dag(&UIP_IP_BUF->destipaddr)) {
     /* The destination is not in our DAG, skip SRH insertion */
-    LOG_INFO("SRH destination not in our DAG, skip SRH insertion\n");
+    //printf("SRH destination not in our DAG, skip SRH insertion\n");
     return 1;
   }
 
   dest_node = uip_sr_get_node(NULL, &UIP_IP_BUF->destipaddr);
   if(dest_node == NULL) {
     /* The destination is not found, skip SRH insertion */
-    LOG_INFO("SRH node not found, skip SRH insertion\n");
+    //printf("SRH node not found, skip SRH insertion\n");
     return 1;
   }
 
   root_node = uip_sr_get_node(NULL, &curr_instance.dag.dag_id);
   if(root_node == NULL) {
-    LOG_ERR("SRH root node not found\n");
+    //printf("SRH root node not found\n");
     return 0;
   }
 
   if(!uip_sr_is_addr_reachable(NULL, &UIP_IP_BUF->destipaddr)) {
-    LOG_ERR("SRH no path found to destination\n");
+    //printf("SRH no path found to destination\n");
     return 0;
   }
 
@@ -285,9 +287,9 @@ insert_srh_header(void)
     cmpri = MIN(cmpri, count_matching_bytes(&node_addr, &UIP_IP_BUF->destipaddr, 16));
     cmpre = cmpri;
 
-    LOG_INFO("SRH Hop ");
-    LOG_INFO_6ADDR(&node_addr);
-    LOG_INFO_("\n");
+//    ADD("SRH Hop ");
+//    ipaddr_add(&node_addr);
+//    PRINT();
     node = node->parent;
     path_len++;
   }
@@ -300,13 +302,14 @@ insert_srh_header(void)
   padding = ext_len % 8 == 0 ? 0 : (8 - (ext_len % 8));
   ext_len += padding;
 
-  LOG_INFO("SRH path len: %u, ComprI %u, ComprE %u, ext len %u (padding %u)\n",
-      path_len, cmpri, cmpre, ext_len, padding);
-
+  //ADD("SRH path len: %u, ComprI %u, ComprE %u, ext len %u (padding %u)\n",
+  //    path_len, cmpri, cmpre, ext_len, padding);
+	//PRINT();
   /* Check if there is enough space to store the extension header */
   if(uip_len + ext_len > UIP_BUFSIZE - UIP_LLH_LEN) {
-    LOG_ERR("packet too long: impossible to add source routing header (%u bytes)\n", ext_len);
-    return 0;
+    //ADD("packet too long: impossible to add source routing header (%u bytes)\n", ext_len);
+    //PRINT();
+		return 0;
   }
 
   /* Move existing ext headers and payload uip_ext_len further */

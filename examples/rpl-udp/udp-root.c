@@ -1,7 +1,4 @@
 /*
- * Copyright (c) 2006, Swedish Institute of Computer Science.
- * All rights reserved.
- *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
  * are met:
@@ -30,75 +27,63 @@
  *
  */
 
-/**
- * \file
- *         Module for sending UDP packets through uIP.
- * \author
- *         Adam Dunkels <adam@sics.se>
- */
-
 #include "contiki.h"
+#include "net/routing/routing.h"
+#include "net/netstack.h"
+#include "net/ipv6/simple-udp.h"
 
-extern uint16_t uip_slen;
-
-#include "net/ipv6/uip-udp-packet.h"
-#include "net/ipv6/multicast/uip-mcast6.h"
-
+#include "contiki-net.h"
 #include "net/routing/util.h"
 
-#include <string.h>
+#include "sys/log.h"
+#define LOG_MODULE "App"
+#define LOG_LEVEL LOG_LEVEL_INFO
 
+#define WITH_SERVER_REPLY  1
+#define UDP_CLIENT_PORT	8765
+#define UDP_SERVER_PORT	5678
+
+//static struct simple_udp_connection udp_conn;
+
+PROCESS(udp_server_process, "UDP server");
+AUTOSTART_PROCESSES(&udp_server_process);
 /*---------------------------------------------------------------------------*/
-void
-uip_udp_packet_send(struct uip_udp_conn *c, const void *data, int len)
-{
-#if UIP_UDP
-  if(data != NULL && len <= (UIP_BUFSIZE - (UIP_LLH_LEN + UIP_IPUDPH_LEN))) {
-    uip_udp_conn = c;
-    uip_slen = len;
-    memmove(&uip_buf[UIP_LLH_LEN + UIP_IPUDPH_LEN], data, len);
-    uip_process(UIP_UDP_SEND_CONN);
-
-#if UIP_IPV6_MULTICAST
-  /* Let the multicast engine process the datagram before we send it */
-  if(uip_is_addr_mcast_routable(&uip_udp_conn->ripaddr)) {
-    UIP_MCAST6.out();
-  }
-#endif /* UIP_IPV6_MULTICAST */
-
-#if NETSTACK_CONF_WITH_IPV6
-    tcpip_ipv6_output();
-#else
-    if(uip_len > 0) {
-      tcpip_output();
-    }
-#endif
-  }
-  uip_slen = 0;
-#endif /* UIP_UDP */
-}
+//static void
+//udp_rx_callback(struct simple_udp_connection *c,
+//         const uip_ipaddr_t *sender_addr,
+//         uint16_t sender_port,
+//         const uip_ipaddr_t *receiver_addr,
+//         uint16_t receiver_port,
+//         const uint8_t *data,
+//         uint16_t datalen)
+//{
+//  unsigned count = *(unsigned *)data;
+//  LOG_INFO("Received request %u from ", count);
+//  LOG_INFO_6ADDR(sender_addr);
+//  LOG_INFO_("\n");
+//#if WITH_SERVER_REPLY
+//  LOG_INFO("Sending response %u to ", count);
+//  LOG_INFO_6ADDR(sender_addr);
+//  LOG_INFO_("\n");
+//  simple_udp_sendto(&udp_conn, &count, sizeof(count), sender_addr);
+//#endif /* WITH_SERVER_REPLY */
+//}
 /*---------------------------------------------------------------------------*/
-void
-uip_udp_packet_sendto(struct uip_udp_conn *c, const void *data, int len,
-		      const uip_ipaddr_t *toaddr, uint16_t toport)
+PROCESS_THREAD(udp_server_process, ev, data)
 {
-  uip_ipaddr_t curaddr;
-  uint16_t curport;
+  PROCESS_BEGIN();
 
-  if(toaddr != NULL) {
-    /* Save current IP addr/port. */
-    uip_ipaddr_copy(&curaddr, &c->ripaddr);
-    curport = c->rport;
+  /* Initialize DAG root */
+  NETSTACK_ROUTING.root_start();
 
-    /* Load new IP addr/port */
-    uip_ipaddr_copy(&c->ripaddr, toaddr);
-    c->rport = toport;
-
-    uip_udp_packet_send(c, data, len);
-
-    /* Restore old IP addr/port */
-    uip_ipaddr_copy(&c->ripaddr, &curaddr);
-    c->rport = curport;
-  }
+//  uip_ds6_addr_t *lladdr;
+//  lladdr = uip_ds6_get_link_local(-1);
+//  set_server_ipaddr(&lladdr->ipaddr);
+//
+//  /* Initialize UDP connection */
+//  simple_udp_register(&udp_conn, UDP_SERVER_PORT, NULL,
+//                      UDP_CLIENT_PORT, udp_rx_callback);
+//
+  PROCESS_END();
 }
 /*---------------------------------------------------------------------------*/
