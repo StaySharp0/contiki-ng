@@ -44,12 +44,20 @@
  *               George Oikonomou <oikonomou@users.sourceforge.net> (multicast)
  */
 
+#include "net/routing/ng-rpl-conf.h"
 #include "net/routing/rpl-lite/rpl.h"
 #include "net/ipv6/uip-icmp6.h"
 #include "net/packetbuf.h"
 #include "lib/random.h"
 
 #include <limits.h>
+
+/* yj, Include header <rpl-icmp6.c>*/
+#if APPLY_NG_RPL
+  #include "net/routing/rpl-lite/rpl-neighbor.h"
+  #include "net/link-stats.h"
+#endif
+
 
 /* Log configuration */
 #include "sys/log.h"
@@ -449,6 +457,11 @@ rpl_icmp6_dio_output(uip_ipaddr_t *uc_addr)
   LOG_INFO_("\n");
 
   uip_icmp6_send(addr, ICMP6_RPL, RPL_CODE_DIO, pos);
+
+  #if D_COUNT_DIO
+    ADD("[DIO COUNT] %u", get_cnt_dio());
+    PRINT();
+  #endif
 }
 /*---------------------------------------------------------------------------*/
 static void
@@ -521,6 +534,32 @@ dao_input(void)
           memcpy(&dao.parent_addr, buffer + i + 6, 16);
         }
         break;
+      /* yj, dao_input NBR addr <rpl-icmp6.c>*/
+      #if APPLY_NG_RPL && A_RECV_DAO
+        case RPL_OPTION_NBR_INFO:
+      #if A_BLNC_DAO_ACK_RECV
+        case RPL_OPTION_NBR_INFO_ACK:
+      #endif
+        {
+          uint8_t addr_len = ADDR_MAX_LENGTH - ADDR_START_INDEX; // 1(0~15)
+          dao.nbr_num = buffer[i+1];
+          len = 2 + (addr_len + 2) * dao.nbr_num; // type(1) + nbr_num(1) = 2
+          if(len) memcpy(dao.nbr_data, buffer + i + 2, (addr_len + 2) * dao.nbr_num);
+
+          #if A_BLNC_DAO_ACK_RECV
+            if(subopt_type == RPL_OPTION_NBR_INFO_ACK) curr_instance.dag.dao_recommend_flag = TRUE;
+            else curr_instance.dag.dao_recommend_flag = FALSE;
+          #endif
+
+          #if DNR_DAO_RECV
+            if(dao.nbr_num != 0) {
+              ADD("[NG-RPL] DAO RECV: NUM %d / LEN %d", dao.nbr_num, (addr_len + 2) * dao.nbr_num);
+              PRINT();
+            }
+          #endif
+          break;
+        }
+      #endif
     }
   }
 
@@ -614,8 +653,62 @@ rpl_icmp6_dao_output(uint8_t lifetime)
   LOG_INFO_6ADDR(parent_ipaddr);
   LOG_INFO_("\n");
 
+  /* yj, Insert (Nbr host ipaddr, ext) <rpl-icmp6.c> */
+#if APPLY_NG_RPL && A_SEND_DAO
+  // Short address
+  uint8_t addr_len = ADDR_MAX_LENGTH - ADDR_START_INDEX; // 1(0~15)
+  rpl_nbr_t *rnbr;
+  uint16_t etx;
+
+  
+  #if A_BLNC_DAO_ACK_RECV
+    if(curr_instance.dag.recommened_flag) buffer[pos++] = RPL_OPTION_NBR_INFO_ACK;
+    else buffer[pos++] = RPL_OPTION_NBR_INFO;
+  #else 
+    buffer[pos++] = RPL_OPTION_NBR_INFO;
+  #endif
+  
+  unsigned char *ptr_nbr_num = buffer + pos;
+  *ptr_nbr_num = 0;
+  pos++;
+
+  for(rnbr = nbr_table_head(rpl_neighbors); rnbr != NULL; rnbr = nbr_table_next(rpl_neighbors, rnbr)) {
+    const struct link_stats *stats = rpl_neighbor_get_link_stats(rnbr);
+    const uip_ipaddr_t* addr = rpl_neighbor_get_ipaddr(rnbr);
+    etx = stats != NULL ? stats->etx : 0xffff;
+
+    *ptr_nbr_num += 1;
+    
+    #if DNR_DAO_SEND
+      ADD("[NG-RPL] DAO SEND: %u||%u", addr->u8[ADDR_START_INDEX], etx);
+      PRINT();
+    #endif
+
+    memcpy(buffer + pos, addr->u8 + ADDR_START_INDEX, addr_len);
+    pos += addr_len;
+    buffer[pos++] = etx & 0xff; // uint16_t -> uint8_t
+    buffer[pos++] = (etx >> 8);
+  }
+  #if DNR_DAO_SEND
+    if(*ptr_nbr_num != 0) {
+      ADD("[NG-RPL] DAO SEND: NUM %u / LEN %u", *ptr_nbr_num, (buffer+pos) - ptr_nbr_num - 1);
+      PRINT();
+    }
+  #endif
+#endif
+
+#if D_BLNC_DAO_SEND
+  ADD("[DAO SEND] parent : %u", parent_ipaddr->u8[15]);
+  PRINT();
+#endif
+
   /* Send DAO to root (IPv6 address is DAG ID) */
   uip_icmp6_send(&curr_instance.dag.dag_id, ICMP6_RPL, RPL_CODE_DAO, pos);
+
+  #if D_COUNT_DAO
+    ADD("[DAO COUNT] %u", get_cnt_dao());
+    PRINT();
+  #endif
 }
 #if RPL_WITH_DAO_ACK
 /*---------------------------------------------------------------------------*/
@@ -669,7 +762,30 @@ rpl_icmp6_dao_ack_output(uip_ipaddr_t *dest, uint8_t sequence, uint8_t status)
   LOG_INFO_6ADDR(dest);
   LOG_INFO_(" with status %d\n", status);
 
-  uip_icmp6_send(dest, ICMP6_RPL, RPL_CODE_DAO_ACK, 4);
+  #if A_BLNC_DAO_ACK_SEND
+    if(curr_instance.dag.dao_recommend_flag) {
+      curr_instance.dag.dao_recommend_flag = FALSE;
+      buffer[1] = RECOMMAND_PARENT_ACK;
+    } else {
+      uint8_t addr[ADDR_LEN];
+      unique_node_t* self;
+
+      memcpy(addr, dest->u8 + ADDR_START_INDEX, ADDR_LEN);
+      self = get_node_by_addr(addr, ADDR_LEN);
+
+      if(find_good_parent(self, (uint8_t *)buffer)) 
+        uip_icmp6_send(dest, ICMP6_RPL, RPL_CODE_DAO_ACK, 4 + 1 + ADDR_LEN);  
+      else 
+        uip_icmp6_send(dest, ICMP6_RPL, RPL_CODE_DAO_ACK, 4);
+    }
+  #else
+    uip_icmp6_send(dest, ICMP6_RPL, RPL_CODE_DAO_ACK, 4);
+  #endif
+
+  #if D_COUNT_DAO_ACK
+    ADD("[DAO_ACK COUNT] %u", get_cnt_dao_ack());
+    PRINT();
+  #endif
 }
 #endif /* RPL_WITH_DAO_ACK */
 /*---------------------------------------------------------------------------*/

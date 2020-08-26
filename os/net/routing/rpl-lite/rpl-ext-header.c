@@ -48,6 +48,12 @@
 #include "net/ipv6/uip-sr.h"
 #include "net/packetbuf.h"
 
+/* yj, Include header <rpl-ext-header.c>*/
+#include "net/routing/ng-rpl-conf.h"
+#if APPLY_NG_RPL
+  #include "net/routing/ng-rpl.h"
+#endif
+
 /* Log configuration */
 #include "sys/log.h"
 #define LOG_MODULE "RPL"
@@ -115,14 +121,41 @@ rpl_ext_header_srh_update(void)
   cmpre = srh_header->cmpr & 0x0f;
   padding = srh_header->pad >> 4;
   path_len = ((ext_len - padding - RPL_RH_LEN - RPL_SRH_LEN - (16 - cmpre)) / (16 - cmpri)) + 1;
-  (void)path_len;
+
+  #if APPLY_ISHR
+    if(srh_header->total_len != 0) path_len = srh_header->total_len - srh_header->direct_len;
+  #endif
 
   LOG_INFO("read SRH, path len %u, segments left %u, Cmpri %u, Cmpre %u, ext len %u (padding %u)\n",
       path_len, segments_left, cmpri, cmpre, ext_len, padding);
 
   /* Update SRH in-place */
   if(segments_left == 0) {
-    /* We are the final destination, do nothing */
+    /* We are the final destination, do nothing *//* yj, Processing ISRH */
+    #if APPLY_ISHR && (A_ISHR_SET_RES || A_ISHR_SET_REQ)
+
+    #if APPLY_ISHR && A_ISHR_SET_RES
+      if(srh_header->direct_len != 0 && srh_header->total_len != 0 && A_ISHR_SET_RES) {
+        #if DEBUG_NG_RPL && DNR_ISRH_RECV
+          ADD("[NG-RPL] ISRH SET PATH : RESPONSE ");
+        #endif
+        uint8_t *addr_ptr = ((uint8_t *)rh_header) + RPL_RH_LEN + RPL_SRH_LEN;
+        set_direct_path(RESPONSE, UIP_IP_BUF->srcipaddr.u8, UIP_IP_BUF->destipaddr.u8, addr_ptr, srh_header->direct_len, ADDR_MAX_LENGTH-cmpre);
+      } 
+    #endif
+
+    #if APPLY_ISHR && A_ISHR_SET_REQ
+      else if(srh_header->direct_len != 0 &&  srh_header->total_len == 0 && A_ISHR_SET_REQ) {
+        #if DEBUG_NG_RPL && DNR_ISRH_RECV
+          ADD("[NG-RPL] ISRH SET PATH: REQUEST ");
+        #endif
+        uint8_t *addr_ptr = ((uint8_t *)rh_header) + RPL_RH_LEN + RPL_SRH_LEN;
+        set_direct_path(REQUEST, UIP_IP_BUF->srcipaddr.u8, UIP_IP_BUF->destipaddr.u8, addr_ptr, srh_header->direct_len, ADDR_MAX_LENGTH-cmpre);
+      }
+    #endif
+    
+      return 2;
+    #endif
   } else if(segments_left > path_len) {
     /* Discard the packet because of a parameter problem. */
     LOG_ERR("SRH with too many segments left (%u > %u)\n",
@@ -130,7 +163,14 @@ rpl_ext_header_srh_update(void)
     return 0;
   } else {
     uint8_t i = path_len - segments_left; /* The index of the next address to be visited */
-    uint8_t *addr_ptr = ((uint8_t *)rh_header) + RPL_RH_LEN + RPL_SRH_LEN + (i * (16 - cmpri));
+    /* yj, 추가된 라우팅 정보에 맞춰 포인터 위치 수정 */
+    #if APPLY_ISHR
+      uint8_t *addr_ptr = srh_header->total_len != 0 ? \
+        ((uint8_t *)rh_header) + RPL_RH_LEN + RPL_SRH_LEN + (ADDR_LEN * srh_header->direct_len) + (i * (16 - cmpri)) : \
+        ((uint8_t *)rh_header) + RPL_RH_LEN + RPL_SRH_LEN + (i * (16 - cmpri));
+    #else 
+      uint8_t *addr_ptr = ((uint8_t *)rh_header) + RPL_RH_LEN + RPL_SRH_LEN + (i * (16 - cmpri));
+    #endif
     uint8_t cmpr = segments_left == 1 ? cmpre : cmpri;
 
     /* As per RFC6554: swap the IPv6 destination address with address[i] */
@@ -223,7 +263,7 @@ insert_srh_header(void)
 
   /* Compute path length and compression factors (we use cmpri == cmpre) */
   path_len = 0;
-  node = dest_node->parent;
+  // node = dest_node->parent; // yj, 원본 위치, 로그를 위해서 선언 위치 변경
   /* For simplicity, we use cmpri = cmpre */
   cmpri = 15;
   cmpre = 15;
@@ -232,6 +272,37 @@ insert_srh_header(void)
   SRH anyway, as RFC 6553 mandates that routed datagrams must include
   SRH or the RPL option (or both) */
 
+  /* yj, get source to route len <rpl-ext-header.c>*/ 
+  #if APPLY_ISHR && A_ISHR_SEND && IS_ROOT
+    uint8_t isRootStart = UIP_IP_BUF->srcipaddr.u8[15] == 1 || UIP_IP_BUF->destipaddr.u8[15] == 1;
+    uint8_t r2s_len = 0;
+
+    if(!isRootStart) {
+      #if DEBUG_NG_RPL && DNR_ISRH_ROUTE
+        ADD("[NG-RPL] ISRH ROUTE(%u->r): ",  UIP_IP_BUF->srcipaddr.u8[15]);
+      #endif
+
+      node = uip_sr_get_node(NULL, &UIP_IP_BUF->srcipaddr);
+      while(node != NULL && node != root_node) {
+        NETSTACK_ROUTING.get_sr_node_ipaddr(&node_addr, node);
+
+        node = node->parent;
+        r2s_len++;
+
+        #if DEBUG_NG_RPL && DNR_ISRH_ROUTE
+          ADD("%u -> ", node_addr.u8[15]);
+        #endif
+      }
+
+      #if DEBUG_NG_RPL && DNR_ISRH_ROUTE
+        ADD("r ");
+        PRINT();
+        ADD("[NG-RPL] ISRH ROUTE(%u->r): %u", UIP_IP_BUF->destipaddr.u8[15], UIP_IP_BUF->destipaddr.u8[15]);
+      #endif
+    }
+  #endif
+
+  node = dest_node->parent; // yj, 수정 위치, 로그를 위해서 선언 위치 변경
   while(node != NULL && node != root_node) {
 
     NETSTACK_ROUTING.get_sr_node_ipaddr(&node_addr, node);
@@ -245,12 +316,55 @@ insert_srh_header(void)
     LOG_INFO_("\n");
     node = node->parent;
     path_len++;
+
+    #if APPLY_ISHR && A_ISHR_SEND && DEBUG_NG_RPL && DNR_ISRH_ROUTE && IS_ROOT
+      if(!isRootStart) {
+        ADD(" -> %u", node_addr.u8[15]);
+      }
+    #endif
   }
 
   /* Extension header length: fixed headers + (n-1) * (16-ComprI) + (16-ComprE)*/
   ext_len = RPL_RH_LEN + RPL_SRH_LEN
       + (path_len - 1) * (16 - cmpre)
       + (16 - cmpri);
+  
+  /* yj, Fix ext_len(+ack_len) <rpl-ext-header.c>*/
+  #if APPLY_ISHR && A_ISHR_SEND && IS_ROOT
+    uint8_t addr_len = ADDR_MAX_LENGTH - ADDR_START_INDEX;
+    uint8_t s2d_len = 0;
+    
+    unique_node_t* _src_node;
+    unique_node_t* _dst_node;
+
+    if(!isRootStart) {
+      #if DEBUG_NG_RPL && DNR_ISRH_ROUTE
+        ADD(" -> r");
+        PRINT();
+      #endif
+
+      _src_node = get_node_by_addr((uint8_t*)(&UIP_IP_BUF->srcipaddr.u8)+ADDR_START_INDEX, addr_len);
+      _dst_node = get_node_by_addr((uint8_t*)(&UIP_IP_BUF->destipaddr.u8)+ADDR_START_INDEX, addr_len);
+      s2d_len = get_opt_hop(_src_node->idx, _dst_node->idx);
+
+      #if APPLY_BALANCE
+        if(s2d_len > path_len + r2s_len) s2d_len = 0;
+      #else 
+        if(s2d_len >= path_len + r2s_len) s2d_len = 0;
+      #endif
+
+      // #if APPLY_BALANCE
+      //   if(s2d_len >= path_len + r2s_len) s2d_len = 0;
+      // #else 
+      //   if(s2d_len > path_len + r2s_len) s2d_len = 0;
+      // #endif
+
+      ext_len = RPL_RH_LEN + RPL_SRH_LEN
+        + (path_len - 1) * (16 - cmpre)
+        + (16 - cmpri)
+        + s2d_len * addr_len;
+    }
+  #endif
 
   padding = ext_len % 8 == 0 ? 0 : (8 - (ext_len % 8));
   ext_len += padding;
@@ -295,6 +409,24 @@ insert_srh_header(void)
 
     node = node->parent;
   }
+
+   /* yj, Add direct routing info<rpl-ext-header.c>*/
+  #if APPLY_ISHR && A_ISHR_SEND  && IS_ROOT
+    srh_hdr->direct_len = s2d_len; 
+    srh_hdr->total_len = path_len + s2d_len;
+    if(!isRootStart) {
+      if(s2d_len != 0){
+        set_opt_path(hop_ptr, _src_node, _dst_node, addr_len);
+      }
+    }
+    
+    #if APPLY_ISHR
+      if(UIP_IP_BUF->srcipaddr.u8[15] != 1 && UIP_IP_BUF->destipaddr.u8[15] != 1) {
+        ADD("[ROUTE] %u-%u | path_len:%u, origin_len:%u, direct_len:%u", UIP_IP_BUF->srcipaddr.u8[15], UIP_IP_BUF->destipaddr.u8[15], path_len, r2s_len + path_len, s2d_len);
+        PRINT();
+      }
+    #endif    
+  #endif
 
   /* The next hop (i.e. node whose parent is the root) is placed as the current IPv6 destination */
   NETSTACK_ROUTING.get_sr_node_ipaddr(&node_addr, node);
@@ -429,6 +561,77 @@ insert_hbh_header(void)
   /* Update header before returning */
   return update_hbh_header();
 }
+
+#if APPLY_ISHR && A_ISRH_DIRECT
+  static int
+  insert_isrh_header(uint8_t type)
+  {
+    /* Implementation of RFC6554 */
+    uint8_t path_len;
+    uint8_t ext_len;
+    uint8_t cmpri, cmpre; /* ComprI and ComprE fields of the RPL Source Routing Header */
+    uint8_t *hop_ptr;
+    uint8_t padding;
+
+    /* Always insest SRH as first extension header */
+    struct uip_routing_hdr *rh_hdr = (struct uip_routing_hdr *)UIP_IP_PAYLOAD(0);
+    struct uip_rpl_srh_hdr *srh_hdr = (struct uip_rpl_srh_hdr *)(UIP_IP_PAYLOAD(0) + RPL_RH_LEN);
+
+    path_len = get_direct_len(type) - 1; // 출발지 제외
+    cmpri = 9;
+    cmpre = 9;
+
+    ext_len = RPL_RH_LEN + RPL_SRH_LEN
+        + (path_len - 2) * (16 - cmpre) // 중간 노드
+        + (16 - cmpri);                 // 목적지 노드
+
+    padding = ext_len % 8 == 0 ? 0 : (8 - (ext_len % 8));
+    ext_len += padding;
+
+    /* Move existing ext headers and payload ext_len further */
+    memmove(uip_buf + UIP_IPH_LEN + uip_ext_len + ext_len,
+        uip_buf + UIP_IPH_LEN + uip_ext_len, uip_len - UIP_IPH_LEN);
+    memset(uip_buf + UIP_IPH_LEN + uip_ext_len, 0, ext_len);
+
+
+    /* Insert source routing header (as first ext header) */
+    rh_hdr->next = UIP_IP_BUF->proto;
+    UIP_IP_BUF->proto = UIP_PROTO_ROUTING;
+
+    /* Initialize IPv6 Routing Header */
+    rh_hdr->len = (ext_len - 8) / 8;
+    rh_hdr->routing_type = RPL_RH_TYPE_SRH;
+    rh_hdr->seg_left = path_len - 1; // 목적지 부모 노드까지
+
+    /* Initialize RPL Source Routing Header */
+    srh_hdr->cmpr = (cmpri << 4) + cmpre;
+    srh_hdr->direct_len = uip_ds6_is_my_addr(&UIP_IP_BUF->srcipaddr) ? path_len + 1 : 0;
+    // srh_hdr->direct_len = path_len + 1;
+    srh_hdr->total_len = 0;
+    srh_hdr->pad = padding << 4;
+
+    /* Initialize addresses field (the actual source route).
+    * From last to first. */
+    hop_ptr = ((uint8_t *)rh_hdr) + ext_len - padding \
+      - ((path_len - 2) * (16 - cmpre)) \
+      - (16 - cmpri); /* Pointer where to write the next hop compressed address */
+
+    get_direct_path(type, cmpre, hop_ptr);
+
+    /* The next hop (i.e. node whose parent is the root) is placed as the current IPv6 destination */
+    //  NETSTACK_ROUTING.get_sr_node_ipaddr(&node_addr, node);
+    //  uip_ipaddr_copy(&UIP_IP_BUF->destipaddr, &node_addr);
+
+    memcpy(UIP_IP_BUF->destipaddr.u8, UIP_IP_BUF->srcipaddr.u8, ADDR_MAX_LENGTH);
+    get_direct_dst(type, UIP_IP_BUF->destipaddr.u8);
+
+    /* Update the IPv6 length field */
+    uipbuf_add_ext_hdr(ext_len);
+    uipbuf_set_len_field(UIP_IP_BUF, uip_len - UIP_IPH_LEN);
+
+    return 1;
+  }
+#endif
 /*---------------------------------------------------------------------------*/
 int
 rpl_ext_header_update(void)
@@ -439,6 +642,34 @@ rpl_ext_header_update(void)
     return 1;
   }
 
+  #if APPLY_ISHR
+    // yj, 루트노드를 통과하는 ISRH이 있는경우 처리
+    struct uip_routing_hdr *rh_header;
+    struct uip_rpl_srh_hdr *srh_header;
+    uint8_t cmpri, cmpre;
+    uint8_t ext_len;
+    uint8_t padding;
+    uint8_t path_len;
+    uint8_t segments_left;
+
+    /* Look for routing ext header */
+    rh_header = (struct uip_routing_hdr *)uipbuf_search_header(uip_buf, uip_len, UIP_PROTO_ROUTING);
+
+    if(rh_header != NULL) {
+      srh_header = (struct uip_rpl_srh_hdr *)(((uint8_t *)rh_header) + RPL_RH_LEN);
+      segments_left = rh_header->seg_left;
+      ext_len = rh_header->len * 8 + 8;
+      cmpri = srh_header->cmpr >> 4;
+      cmpre = srh_header->cmpr & 0x0f;
+      padding = srh_header->pad >> 4;
+
+      if(srh_header->total_len != 0) path_len = srh_header->total_len - srh_header->direct_len;
+      else path_len = ((ext_len - padding - RPL_RH_LEN - RPL_SRH_LEN - (16 - cmpre)) / (16 - cmpri)) + 1;
+
+      if(segments_left != 0 && segments_left <= path_len) return 1;
+    }
+  #endif
+
   if(rpl_dag_root_is_root()) {
     /* At the root, remove headers if any, and insert SRH or HBH
     * (SRH is inserted only if the destination is down the DODAG) */
@@ -446,6 +677,27 @@ rpl_ext_header_update(void)
     /* Insert SRH (if needed) */
     return insert_srh_header();
   } else {
+    /* yj, check available(client -> client) <rpl-ext-header.c>*/
+    #if APPLY_ISHR && A_ISRH_DIRECT
+      uint8_t type = can_send_direct(UIP_IP_BUF->destipaddr.u8);
+
+      #if DEBUG_NG_RPL && DNR_ISRH_DIRECT
+        if(uip_ds6_is_my_addr(&UIP_IP_BUF->srcipaddr) && type != FALSE) {
+        // if(type != FALSE) {
+          ADD("[NG-RPL] canDirected: %s", \
+            type == RESPONSE ? "RESPONSE" : \
+            type == REQUEST ? "REQUEST": "");
+          PRINT();
+        }
+      #endif
+
+      if(uip_ds6_is_my_addr(&UIP_IP_BUF->srcipaddr) && type != FALSE) {
+      // if(type != FALSE) {
+        rpl_ext_header_remove();
+        return insert_isrh_header(type);
+      }
+    #endif
+
     if(uip_ds6_is_my_addr(&UIP_IP_BUF->srcipaddr)
         && UIP_IP_BUF->ttl == uip_ds6_if.cur_hop_limit) {
       /* Insert HBH option at source. Checking the address is not sufficient because

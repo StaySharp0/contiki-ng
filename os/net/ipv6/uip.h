@@ -85,6 +85,9 @@
 #include "net/ipv6/uipbuf.h"
 #include "net/linkaddr.h"
 
+/* yj, Include header <uip.h>*/
+#include "net/routing/ng-rpl-conf.h"
+
 /* For memcmp */
 #include <string.h>
 
@@ -1672,7 +1675,13 @@ typedef struct uip_routing_hdr {
 typedef struct uip_rpl_srh_hdr {
   uint8_t cmpr; /* CmprI and CmprE */
   uint8_t pad;
-  uint8_t reserved[2];
+  /* yj, Add direct_len, total_len <uip.h> */
+  #if APPLY_ISHR
+    uint8_t direct_len;
+    uint8_t total_len;
+  #else
+    uint8_t reserved[2];
+  #endif
 } uip_rpl_srh_hdr;
 
 /* fragmentation header */

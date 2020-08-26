@@ -52,6 +52,9 @@
 #include "lib/memb.h"
 #include "lib/assert.h"
 
+/* yj, Include header <csma-output.c>*/
+#include "net/routing/ng-rpl-conf.h"
+
 /* Log configuration */
 #include "sys/log.h"
 #define LOG_MODULE "CSMA"
@@ -168,6 +171,10 @@ backoff_period(void)
 static int
 send_one_packet(struct neighbor_queue *n, struct packet_queue *q)
 {
+  #if SEND_CSMA_MSG
+    printf("[CSMA] send\n");
+  #endif
+  
   int ret;
   int last_sent_ok = 0;
 

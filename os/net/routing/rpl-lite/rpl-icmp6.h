@@ -45,6 +45,12 @@
 #include "uip.h"
 #include "uip-ds6.h"
 #include "uip-ds6-nbr.h"
+#include "net/routing/ng-rpl-conf.h"
+
+/* yj, Add header <rpl-icmp6.h> */
+#if APPLY_NG_RPL
+  #include "net/routing/ng-rpl.h"
+#endif
 
 /********** Data structures **********/
 
@@ -81,6 +87,12 @@ struct rpl_dao {
   uint8_t lifetime;
   uint8_t prefixlen;
   uint8_t flags;
+  
+  /* yj, NBR dao parameter <rpl-icmp6.h> */
+  #if APPLY_NG_RPL
+    uint8_t nbr_num;
+    uint8_t nbr_data[(ADDR_MAX_LENGTH - ADDR_START_INDEX + 2) * MAX_NODE]; // client node number
+  #endif
 };
 typedef struct rpl_dao rpl_dao_t;
 

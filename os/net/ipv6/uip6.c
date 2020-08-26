@@ -85,6 +85,10 @@
 #include "net/ipv6/uip-ds6-nbr.h"
 #endif /* UIP_ND6_SEND_NS */
 
+/* yj, Include header <uip6.c>*/
+#include "net/routing/ng-rpl-conf.h"
+
+
 /* Log configuration */
 #include "sys/log.h"
 #define LOG_MODULE "IPv6"
@@ -1356,6 +1360,32 @@ uip_process(uint8_t flag)
        */
 
       LOG_DBG("Processing Routing header\n");
+#if APPLY_ISHR
+      /* yj, Fix condition(시뮬레이션 속도 향상 및 ISRH 처리) */
+      if(((struct uip_routing_hdr *)ext_ptr)->seg_left >= 0) {
+        switch(NETSTACK_ROUTING.ext_header_srh_update()){
+          case 1: 
+            /* The MTU and TTL were not checked and updated yet, because with
+            * a routing header, the IPv6 destination address was set to us
+            * even though we act only as forwarder. Check MTU and TTL now */
+            if(!uip_check_mtu() || !uip_update_ttl()) {
+              /* Send ICMPv6 error, prepared by the function that just returned false */
+              goto send;
+            }
+
+            LOG_INFO("Forwarding packet to next hop ");
+            LOG_INFO_6ADDR(&UIP_IP_BUF->destipaddr);
+            LOG_INFO_("\n");
+            UIP_STAT(++uip_stat.ip.forwarded);
+
+            goto send; /* Proceed to forwarding */
+          break;
+          case 0:
+            LOG_ERR("Unrecognized routing type\n");
+            goto bad_hdr;
+          break;
+        }
+#else 
       if(((struct uip_routing_hdr *)ext_ptr)->seg_left > 0) {
         /* Process source routing header */
         if(NETSTACK_ROUTING.ext_header_srh_update()) {
@@ -1378,6 +1408,7 @@ uip_process(uint8_t flag)
           LOG_ERR("Unrecognized routing type\n");
           goto bad_hdr;
         }
+#endif
       }
       break;
     case UIP_PROTO_FRAG:

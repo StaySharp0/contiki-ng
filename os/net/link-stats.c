@@ -54,6 +54,7 @@
 /* Maximum value for the freshness counter */
 #define FRESHNESS_MAX                   16
 
+
 /* EWMA (exponential moving average) used to maintain statistics over time */
 #define EWMA_SCALE                     100
 #define EWMA_ALPHA                      10

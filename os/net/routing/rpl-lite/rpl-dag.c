@@ -47,6 +47,12 @@
 #include "net/nbr-table.h"
 #include "net/link-stats.h"
 
+/* yj, Include header <rpl-dag.c>*/
+#include "net/routing/ng-rpl-conf.h"
+#if APPLY_NG_RPL
+  #include "net/routing/ng-rpl.h"
+#endif
+
 /* Log configuration */
 #include "sys/log.h"
 #define LOG_MODULE "RPL"
@@ -131,6 +137,7 @@ void
 rpl_dag_poison_and_leave(void)
 {
   curr_instance.dag.state = DAG_POISONING;
+  
   rpl_timers_schedule_state_update();
 }
 /*---------------------------------------------------------------------------*/
@@ -144,6 +151,9 @@ rpl_dag_periodic(unsigned seconds)
       if(curr_instance.dag.lifetime == 0) {
         LOG_WARN("DAG expired, poison and leave\n");
         curr_instance.dag.state = DAG_POISONING;
+
+        if(get_clock() == 0) set_clock(clock_time());
+
         rpl_timers_schedule_state_update();
       } else if(curr_instance.dag.lifetime < 300 && curr_instance.dag.preferred_parent != NULL) {
         /* Five minutes before expiring, start sending unicast DIS to get an update */
@@ -284,33 +294,85 @@ rpl_dag_update_state(void)
       rpl_timers_dio_reset("Poison routes");
       rpl_timers_schedule_leaving();
     }
-  } else if(!rpl_dag_root_is_root()) {
+  } else if(!rpl_dag_root_is_root()) {    
     rpl_nbr_t *old_parent = curr_instance.dag.preferred_parent;
-    rpl_nbr_t *nbr;
+    rpl_nbr_t *nbr = NULL;
 
-    /* Select and set preferred parent */
-    rpl_neighbor_set_preferred_parent(rpl_neighbor_select_best());
-    /* Update rank  */
-    curr_instance.dag.rank = rpl_neighbor_rank_via_nbr(curr_instance.dag.preferred_parent);
+    #if A_BLNC_DAO_ACK_RECV
+      rpl_nbr_t *target = NULL;
+      if(curr_instance.dag.recommened_flag) {
+        nbr = nbr_table_head(rpl_neighbors);
 
-    /* Update better_parent_since flag for each neighbor */
-    nbr = nbr_table_head(rpl_neighbors);
-    while(nbr != NULL) {
-      if(rpl_neighbor_rank_via_nbr(nbr) < curr_instance.dag.rank) {
-        /* This neighbor would be a better parent than our current.
-        Set 'better_parent_since' if not already set. */
-        if(nbr->better_parent_since == 0) {
-          nbr->better_parent_since = clock_time(); /* Initialize */
+        while(nbr != NULL) {
+          if(!memcmp(
+            rpl_neighbor_get_ipaddr(nbr)->u8 + ADDR_START_INDEX,
+            curr_instance.dag.recommened_parent_addr,
+            curr_instance.dag.recommened_addr_len
+          )) {
+            target = rpl_neighbor_select_best();
+            if(nbr == target) {
+              rpl_neighbor_set_preferred_parent(nbr);
+              curr_instance.dag.rank = rpl_neighbor_rank_via_nbr(curr_instance.dag.preferred_parent);
+              curr_instance.dag.recommened_flag = FALSE;
+            }
+          } 
+
+          nbr->better_parent_since = 0;
+          nbr = nbr_table_next(rpl_neighbors, nbr);
         }
       } else {
-        nbr->better_parent_since = 0; /* Not a better parent */
+        /* Select and set preferred parent */
+        rpl_neighbor_set_preferred_parent(rpl_neighbor_select_best());
+
+        /* Update rank  */
+        curr_instance.dag.rank = rpl_neighbor_rank_via_nbr(curr_instance.dag.preferred_parent);
+
+        /* Update better_parent_since flag for each neighbor */
+        nbr = nbr_table_head(rpl_neighbors);
+
+        while(nbr != NULL) {
+          if(rpl_neighbor_rank_via_nbr(nbr) < curr_instance.dag.rank) {
+            /* This neighbor would be a better parent than our current.
+            Set 'better_parent_since' if not already set. */
+            if(nbr->better_parent_since == 0 && curr_instance.dag.recommened_addr_len == 0) {
+              nbr->better_parent_since = clock_time(); /* Initialize */
+            }
+          } else {
+            nbr->better_parent_since = 0; /* Not a better parent */
+          }
+      
+          nbr = nbr_table_next(rpl_neighbors, nbr);
+        }
+
       }
-      nbr = nbr_table_next(rpl_neighbors, nbr);
-    }
+    #else 
+      /* Select and set preferred parent */
+      rpl_neighbor_set_preferred_parent(rpl_neighbor_select_best());
+
+      /* Update rank  */
+      curr_instance.dag.rank = rpl_neighbor_rank_via_nbr(curr_instance.dag.preferred_parent);
+
+      /* Update better_parent_since flag for each neighbor */
+      nbr = nbr_table_head(rpl_neighbors);
+
+      while(nbr != NULL) {
+        if(rpl_neighbor_rank_via_nbr(nbr) < curr_instance.dag.rank) {
+          /* This neighbor would be a better parent than our current.
+          Set 'better_parent_since' if not already set. */
+          if(nbr->better_parent_since == 0) {
+            nbr->better_parent_since = clock_time(); /* Initialize */
+          }
+        } else {
+          nbr->better_parent_since = 0; /* Not a better parent */
+        }
+    
+        nbr = nbr_table_next(rpl_neighbors, nbr);
+      }
+    #endif
 
     if(old_parent == NULL || curr_instance.dag.rank < curr_instance.dag.lowest_rank) {
       /* This is a slight departure from RFC6550: if we had no preferred parent before,
-       * reset lowest_rank. This helps recovering from temporary bad link conditions. */
+      * reset lowest_rank. This helps recovering from temporary bad link conditions. */
       curr_instance.dag.lowest_rank = curr_instance.dag.rank;
     }
 
@@ -318,8 +380,9 @@ rpl_dag_update_state(void)
     if(curr_instance.dag.last_advertised_rank != RPL_INFINITE_RANK
         && curr_instance.dag.rank != RPL_INFINITE_RANK
         && ABS((int32_t)curr_instance.dag.rank - curr_instance.dag.last_advertised_rank) > RPL_SIGNIFICANT_CHANGE_THRESHOLD) {
-      LOG_WARN("significant rank update %u->%u\n",
-          curr_instance.dag.last_advertised_rank, curr_instance.dag.rank);
+      // LOG_WARN("significant rank update %u->%u\n",
+      //     curr_instance.dag.last_advertised_rank, curr_instance.dag.rank);
+
       /* Update already here to avoid multiple resets in a row */
       curr_instance.dag.last_advertised_rank = curr_instance.dag.rank;
       rpl_timers_dio_reset("Significant rank update");
@@ -327,7 +390,7 @@ rpl_dag_update_state(void)
 
     /* Parent switch */
     if(curr_instance.dag.unprocessed_parent_switch) {
-
+      
       if(curr_instance.dag.preferred_parent != NULL) {
         /* We just got a parent (was NULL), reset trickle timer to advertise this */
         if(old_parent == NULL) {
@@ -336,14 +399,28 @@ rpl_dag_update_state(void)
           LOG_WARN("found parent: ");
           LOG_WARN_6ADDR(rpl_neighbor_get_ipaddr(curr_instance.dag.preferred_parent));
           LOG_WARN_(", staying in DAG\n");
+
+          #if D_BLNC_BEST_PARENT
+            ADD("found parent: ");
+            ipaddr_add(rpl_neighbor_get_ipaddr(curr_instance.dag.preferred_parent));
+            ADD(", staying in DAG");
+            PRINT();
+          #endif
+
           rpl_timers_unschedule_leaving();
         }
-        /* Schedule a DAO */
+
         rpl_timers_schedule_dao();
       } else {
         /* We have no more parent, schedule DIS to get a chance to hear updated state */
         curr_instance.dag.state = DAG_INITIALIZED;
         LOG_WARN("no parent, scheduling periodic DIS, will leave if no parent is found\n");
+
+        #if D_BLNC_BEST_PARENT
+          ADD("no parent, scheduling periodic DIS, will leave if no parent is found ");
+          PRINT();
+        #endif
+
         rpl_timers_dio_reset("Poison routes");
         rpl_timers_schedule_periodic_dis();
         rpl_timers_schedule_leaving();
@@ -641,6 +718,92 @@ rpl_process_dao(uip_ipaddr_t *from, rpl_dao_t *dao)
     }
   }
 
+/* yj, rpl_process_dao <rpl-dag.c>*/
+#if APPLY_NG_RPL && A_PROC_DAO && IS_ROOT
+  uint8_t addr_len = ADDR_MAX_LENGTH - ADDR_START_INDEX;
+  uint8_t addr[addr_len];
+  unique_node_t* self;
+  
+  // insert self
+  memcpy(addr, from->u8 + ADDR_START_INDEX, addr_len);
+  self = push_node(addr, addr_len);
+
+  #if DEBUG_NG_RPL && DNR_DAO_PROC
+    ADD("[NG-RPL] DAO PROC: %u[%u/%u]", self->addr[0], self->idx, get_count()-1);
+    PRINT();
+  #endif
+
+  #if A_BLNC_DAO_PROC
+    unique_node_t* parent, *prev;
+    
+    // insert parent 
+    memcpy(addr, dao->parent_addr.u8 + ADDR_START_INDEX, addr_len);
+    parent = push_node(addr, addr_len);
+
+    if(self->idx == self->parent_idx) {
+      // case 1: 부모가 처음 설정됨
+      parent->child_num++;
+      self->parent_idx = parent->idx;
+
+      #if D_BLNC_DAO_PROC
+        ADD("D_BLNC_DAO_PROC: me[%u] - rank: %u / parent[%u] - num: %u", \
+          self->idx, get_rank(self), parent->idx, parent->child_num);
+        PRINT();
+      #endif
+    } 
+    else if(self->parent_idx != parent->idx) {
+      // 구부모 자녀수 감소
+      prev = get_node_by_idx(self->parent_idx);
+      prev->child_num--;
+
+      // 신부모 자녀수 증가
+      parent->child_num++;
+      self->parent_idx = parent->idx;
+
+      #if D_BLNC_DAO_PROC
+        ADD("D_BLNC_DAO_PROC: me[%u] - rank: %u / parent[%u] - num: %u", \
+          self->idx, get_rank(self), parent->idx, parent->child_num);
+        PRINT();
+        ADD("D_BLNC_DAO_PROC: prev parent[%u] - num: %u", prev->idx, prev->child_num);
+        PRINT();
+      #endif
+    }    
+  #endif
+
+  // insert nbr
+  uint16_t etx;
+  uint16_t i;
+  unique_node_t *nbr;
+  self->nbr_num = 0;
+  for(i = 0; i < dao->nbr_num; i++){
+    memcpy(addr, dao->nbr_data + (addr_len + 2) * i, addr_len);
+    etx = dao->nbr_data[(addr_len + 2) * i + addr_len] | dao->nbr_data[(addr_len + 2) * i + addr_len + 1] << 8;
+    nbr = push_node(addr, addr_len);
+
+    #if A_BLNC_DAO_PROC
+      if(nbr->idx == parent->idx) {
+        self->parent_etx = etx;
+      }
+    #endif
+
+    self->nbr[i] = nbr->idx;
+    self->nbr_etx[i] = etx;
+    self->nbr_num++;
+
+    #if DEBUG_NG_RPL && DNR_DAO_PROC_CHILD
+      ADD("[NG-RPL] DAO PROC nbr: %u[%u]\'%u ", addr[0], nbr->idx, etx); // 0 <- len: 1
+      PRINT();
+    #endif
+  }
+
+  #if DEBUG_NG_RPL && DNR_DAO_PROC
+    ADD("[NG-RPL] DAO PROC: nbr_num:%u", self->nbr_num);
+    PRINT();
+  #endif
+
+  opt_path();
+#endif
+
 #if RPL_WITH_DAO_ACK
   if(dao->flags & RPL_DAO_K_FLAG) {
     rpl_timers_schedule_dao_ack(from, dao->sequence);
@@ -662,6 +825,11 @@ rpl_process_dao_ack(uint8_t sequence, uint8_t status)
     if(curr_instance.dag.state == DAG_JOINED && status_ok) {
       curr_instance.dag.state = DAG_REACHABLE;
       rpl_timers_dio_reset("Reachable");
+
+      if(get_clock() != 0) {
+        printf("repair time: %u\n", (clock_time() - get_clock()) / CLOCK_SECOND);
+        set_clock(0);
+      }
     }
     /* Let the rpl-timers module know that we got an ACK for the last DAO */
     rpl_timers_notify_dao_ack();
@@ -671,8 +839,31 @@ rpl_process_dao_ack(uint8_t sequence, uint8_t status)
       LOG_WARN("DAO-NACK received with seqno %u, status %u, poison and leave\n",
               sequence, status);
       curr_instance.dag.state = DAG_POISONING;
+      
+      if(get_clock() == 0) set_clock(clock_time()); 
     }
   }
+
+  #if A_BLNC_DAO_ACK_RECV
+    uint8_t *buffer;
+    buffer = UIP_ICMP_PAYLOAD;
+    uint8_t len = buffer[4];
+
+    if(buffer[1] == RECOMMAND_PARENT) {
+      #if D_BLNC_DAO_ACK_RECV
+        ADD("(rpl_process_dao_ack) ");
+        for(uint8_t i = 0; i < len; i++) ADD("%u ", buffer[5 + i]);
+        PRINT();
+      #endif
+
+      curr_instance.dag.recommened_flag = TRUE;
+      curr_instance.dag.recommened_addr_len = len;
+      memcpy(curr_instance.dag.recommened_parent_addr, buffer + 5, len);
+    }
+    // else if (buffer[1] == RECOMMAND_PARENT_ACK){
+    //   curr_instance.dag.recommened_flag = FALSE;
+    // }
+  #endif
 }
 #endif /* RPL_WITH_DAO_ACK */
 /*---------------------------------------------------------------------------*/
@@ -744,6 +935,10 @@ rpl_dag_init_root(uint8_t instance_id, uip_ipaddr_t *dag_id,
   curr_instance.dag.version = version;
   curr_instance.dag.rank = ROOT_RANK;
   curr_instance.dag.lifetime = RPL_LIFETIME(RPL_INFINITE_LIFETIME);
+  #if APPLY_BALANCE
+    curr_instance.dag.recommened_flag = FALSE;
+    curr_instance.dag.recommened_addr_len = 0;
+  #endif
   /* dio_intcurrent will be reset by rpl_timers_dio_reset() */
   curr_instance.dag.dio_intcurrent = 0;
   curr_instance.dag.state = DAG_REACHABLE;

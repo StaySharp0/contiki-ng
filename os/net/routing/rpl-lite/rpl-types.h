@@ -45,6 +45,8 @@
 #ifndef RPL_TYPES_H
 #define RPL_TYPES_H
 
+#include "net/routing/ng-rpl-conf.h"
+
  /********** Macros **********/
 
 /* Multicast address: create and compare */
@@ -218,7 +220,17 @@ struct rpl_dag {
   uip_ipaddr_t dao_ack_target;
   uint16_t dao_ack_sequence;
   struct ctimer dao_ack_timer;
+
+  #if A_BLNC_DAO_ACK_RECV 
+    bool dao_recommend_flag;
+  #endif
 #endif /* RPL_WITH_DAO_ACK */
+
+#if APPLY_BALANCE
+  uint8_t recommened_flag;
+  uint8_t recommened_addr_len;
+  uint8_t recommened_parent_addr[ADDR_LEN];
+#endif
 };
 typedef struct rpl_dag rpl_dag_t;
 

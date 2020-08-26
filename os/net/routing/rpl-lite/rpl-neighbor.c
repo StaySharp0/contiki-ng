@@ -359,13 +359,16 @@ best_parent(int fresh_only)
   rpl_nbr_t *nbr;
   rpl_nbr_t *best = NULL;
 
+  #if A_BLNC_DAO_ACK_RECV
+    rpl_nbr_t *rec = NULL;
+  #endif
+
   if(curr_instance.used == 0) {
     return NULL;
   }
 
   /* Search for the best parent according to the OF */
   for(nbr = nbr_table_head(rpl_neighbors); nbr != NULL; nbr = nbr_table_next(rpl_neighbors, nbr)) {
-
     if(!acceptable_rank(rpl_neighbor_rank_via_nbr(nbr))
       || !curr_instance.of->nbr_is_acceptable_parent(nbr)) {
       /* Exclude neighbors with a rank that is not acceptable */
@@ -389,7 +392,24 @@ best_parent(int fresh_only)
 
     /* Now we have an acceptable parent, check if it is the new best */
     best = curr_instance.of->best_parent(best, nbr);
+
+    #if A_BLNC_DAO_ACK_RECV
+      if(!fresh_only 
+        && curr_instance.dag.recommened_addr_len 
+        && !memcmp(
+          rpl_neighbor_get_ipaddr(nbr)->u8 + ADDR_START_INDEX,
+          curr_instance.dag.recommened_parent_addr,
+          curr_instance.dag.recommened_addr_len
+        )
+      ) {
+        rec = nbr;
+      }
+    #endif
   }
+
+  #if A_BLNC_DAO_ACK_RECV
+    if(rec != NULL) best = rec;
+  #endif
 
   return best;
 }
@@ -405,15 +425,17 @@ rpl_neighbor_select_best(void)
 
   /* Look for best parent (regardless of freshness) */
   best = best_parent(0);
-
-#if RPL_WITH_PROBING
+  
+#if RPL_WITH_PROBING 
   if(best != NULL) {
     if(rpl_neighbor_is_fresh(best)) {
       /* Unschedule any already scheduled urgent probing */
       curr_instance.dag.urgent_probing_target = NULL;
+
       /* Return best if it is fresh */
       return best;
-    } else {
+    } 
+    else {
       rpl_nbr_t *best_fresh;
 
       /* The best is not fresh. Probe it (unless there is already an urgent
@@ -422,6 +444,7 @@ rpl_neighbor_select_best(void)
         LOG_INFO("best parent is not fresh, schedule urgent probing to ");
         LOG_INFO_6ADDR(rpl_neighbor_get_ipaddr(best));
         LOG_INFO_("\n");
+
         curr_instance.dag.urgent_probing_target = best;
         rpl_schedule_probing_now();
       }
