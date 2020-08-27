@@ -151,9 +151,6 @@ rpl_dag_periodic(unsigned seconds)
       if(curr_instance.dag.lifetime == 0) {
         LOG_WARN("DAG expired, poison and leave\n");
         curr_instance.dag.state = DAG_POISONING;
-
-        if(get_clock() == 0) set_clock(clock_time());
-
         rpl_timers_schedule_state_update();
       } else if(curr_instance.dag.lifetime < 300 && curr_instance.dag.preferred_parent != NULL) {
         /* Five minutes before expiring, start sending unicast DIS to get an update */
@@ -825,11 +822,6 @@ rpl_process_dao_ack(uint8_t sequence, uint8_t status)
     if(curr_instance.dag.state == DAG_JOINED && status_ok) {
       curr_instance.dag.state = DAG_REACHABLE;
       rpl_timers_dio_reset("Reachable");
-
-      if(get_clock() != 0) {
-        printf("repair time: %u\n", (clock_time() - get_clock()) / CLOCK_SECOND);
-        set_clock(0);
-      }
     }
     /* Let the rpl-timers module know that we got an ACK for the last DAO */
     rpl_timers_notify_dao_ack();
@@ -839,8 +831,6 @@ rpl_process_dao_ack(uint8_t sequence, uint8_t status)
       LOG_WARN("DAO-NACK received with seqno %u, status %u, poison and leave\n",
               sequence, status);
       curr_instance.dag.state = DAG_POISONING;
-      
-      if(get_clock() == 0) set_clock(clock_time()); 
     }
   }
 
