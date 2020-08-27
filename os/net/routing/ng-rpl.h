@@ -43,6 +43,7 @@ void set_clock(clock_time_t);
 
   } ng_rpl_t;
 
+
   typedef struct unique_node
   {
     uint16_t idx;
@@ -80,7 +81,7 @@ void set_clock(clock_time_t);
   void get_direct_dst(uint8_t type, uint8_t* ptr);
 #endif
 
-#if APPLY_BALANCE
+#if APPLY_BALANCE && IS_ROOT
   uint8_t find_good_parent(unique_node_t* self, uint8_t *ptr);
   int get_rank(unique_node_t* self, bool isFirst);
 #endif

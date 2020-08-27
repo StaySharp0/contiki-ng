@@ -762,7 +762,7 @@ rpl_icmp6_dao_ack_output(uip_ipaddr_t *dest, uint8_t sequence, uint8_t status)
   LOG_INFO_6ADDR(dest);
   LOG_INFO_(" with status %d\n", status);
 
-  #if A_BLNC_DAO_ACK_SEND
+  #if A_BLNC_DAO_ACK_SEND && IS_ROOT
     if(curr_instance.dag.dao_recommend_flag) {
       curr_instance.dag.dao_recommend_flag = FALSE;
       buffer[1] = RECOMMAND_PARENT_ACK;

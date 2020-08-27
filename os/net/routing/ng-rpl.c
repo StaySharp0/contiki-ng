@@ -84,6 +84,7 @@ void set_clock(clock_time_t clock) {
     ng_rpl_obj.node_count = 0;
   }
 
+
   uint16_t get_count()
   {
     return ng_rpl_obj.node_count;
@@ -286,6 +287,7 @@ void set_clock(clock_time_t clock) {
     #endif
   }
 
+
   uint8_t
   can_send_direct(uint8_t* dst){
     if(ng_rpl_obj.response_path_num >= 3 
@@ -354,7 +356,7 @@ void set_clock(clock_time_t clock) {
   }
 #endif
 
-#if APPLY_BALANCE
+#if APPLY_BALANCE && IS_ROOT
   uint16_t high_parent_etx = 0;
   uint16_t avg_parent_etx = 0;
 
@@ -461,7 +463,7 @@ void set_clock(clock_time_t clock) {
         if (
           nbr_etx < parent_etx
           // && (nbr_etx < parent_etx || nbr_etx < avg_parent_etx * 1.3 )
-          && nbr_rank1_child + nbr->child_num < (parent_rank1_child + parent->child_num - 1) 
+          && nbr_rank1_child + nbr->child_num < (parent_rank1_child + parent->child_num - 1) // 25 case
         ) {
           #if D_BLNC_DAO_ACK_SEND
             ADD(" <-");
